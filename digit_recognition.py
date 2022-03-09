@@ -6,9 +6,11 @@ import torchvision.transforms as transforms
 import torch
 from tqdm import tqdm
 from torch.optim import Adam
+from torch.utils.data import Dataset
 import argparse
 import os
 
+""" define and train convolutional neural network for digit recognition """
 
 class MyNetwork(nn.Module):
     def __init__(self):
@@ -66,6 +68,28 @@ class ConvLayer(nn.Module):
         output = self.conv1(output)
         return output
 
+class MNIST19(Dataset):
+    def __init__(self, mnist_data, transform=None, target_transform=None):
+        nonzero_inds = np.where(mnist_data.targets != 0)
+
+        self.img_labels = mnist_data.targets[nonzero_inds]
+        self.imgs = mnist_data.data[nonzero_inds]
+        self.transform = transform
+        self.target_transform = target_transform
+
+    def __len__(self):
+        return len(self.img_labels)
+
+    def __getitem__(self, idx):
+        image = self.imgs[None, idx].float()
+        label = self.img_labels[idx]
+        if self.transform:
+            image = self.transform(image)
+        if self.target_transform:
+            label = self.target_transform(label)
+
+        return image, label
+
 
 def train(args):
 
@@ -75,20 +99,22 @@ def train(args):
                                     transforms.ToTensor(),
                                     transforms.Lambda(lambda x: x.mul(255))])
 
-    transform1 = transforms.Compose([transforms.Resize(args.img_size),
-                                    transforms.ToTensor(),
-                                    transforms.RandomAffine(20, translate=(0.20, 0.20), scale=(0.7, 1.3), shear=20),
-                                    transforms.GaussianBlur(5),
-                                    transforms.Lambda(lambda x: x.mul(255))])
+    # transform = transforms.Compose([transforms.Resize(args.img_size),
+    #                                 transforms.ToTensor(),
+    #                                 transforms.RandomAffine(20, translate=(0.20, 0.20), scale=(0.7, 1.3), shear=20),
+    #                                 transforms.Lambda(lambda x: x.mul(255))])
 
-    mnist_data = torchvision.datasets.MNIST(args.datapath, transform=transform1)
+    mnist_data_train = torchvision.datasets.MNIST(args.datapath, transform=transform)
+    mnist19_train = MNIST19(mnist_data_train)
 
     mynetwork = MyNetwork().to(device)
     optimizer = Adam(mynetwork.parameters(), float(args.lr))
     mylossfn = nn.CrossEntropyLoss()
 
     for epoch in range(int(args.epochs)):
-        data_loader = torch.utils.data.DataLoader(mnist_data, batch_size=int(args.batch_size), shuffle=True)
+        # data_loader = torch.utils.data.DataLoader(mnist_data_train, batch_size=int(args.batch_size), shuffle=True)
+        data_loader = torch.utils.data.DataLoader(mnist19_train, batch_size=int(args.batch_size), shuffle=True)
+
         iter_bar = tqdm(data_loader)
 
         myloss = 0
@@ -123,8 +149,11 @@ def test(args):
                                     transforms.Lambda(lambda x: x.mul(255))])
 
     # load test MNIST set
-    mnist_data = torchvision.datasets.MNIST(args.datapath, train=False, transform=transform)
-    data_loader = torch.utils.data.DataLoader(mnist_data, batch_size=1, shuffle=True)
+    mnist_data_test = torchvision.datasets.MNIST(args.datapath, train=False, transform=transform)
+    # data_loader = torch.utils.data.DataLoader(mnist_data_test, batch_size=1, shuffle=True)
+    mnist19_test = MNIST19(mnist_data_test)
+    data_loader = torch.utils.data.DataLoader(mnist19_test, batch_size=1, shuffle=True)
+
     iter_bar = tqdm(data_loader)
 
     # load trained model
@@ -143,7 +172,7 @@ def test(args):
         if pred == label:
             correct += 1
 
-    print("Percent of correct predictions was {:.2f}".format(100 * correct/10000)) # 10,000 images in test set
+    print("Percent of correct predictions was {:.2f}".format(100 * correct/mnist19_test.__len__()))
 
     return
 

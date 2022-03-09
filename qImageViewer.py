@@ -63,7 +63,8 @@ from PIL import Image
 from digit_recognition import MyNetwork, ConvLayer
 import torch
 import pickle as pkl
-from scipy.ndimage import gaussian_filter
+from scipy.ndimage.filters import gaussian_filter
+
 
 
 
@@ -291,6 +292,7 @@ class ImageViewer(QMainWindow):
 
 
     def findDistortion(self):
+        """ take sudoku box corners and calculate the affine transformation for a proper square"""
 
         p1 = (0,0)
         p2 = (0, self.l)
@@ -352,57 +354,124 @@ class ImageViewer(QMainWindow):
     def digitRecognition(self):
         image = self.findDistortion()
         image = self.toGrayscale(image)
-        im = self.numpyToQimage(image)
 
+        # Display the cropped image
+        im = self.numpyToQimage(image)
         self.digits = Digits(im, self)
         self.digits.show()
 
-        # grab each image from the sudoku puzzle
-        p = 0.10  # percentage of border to crop out (center crop)
-
-        # reshape the sudoku array into the 81 separate cells
-        target = 32
-        n = 2
+        # Get rid of cell borders
+        target = 34
+        n = (target-28)//2
         pimage = Image.fromarray(image)
         pimage = pimage.resize((target * 9, target * 9))
-        myarray = np.array(pimage).reshape(9, target, 9, target)
-        myarray = myarray.swapaxes(1,2)
+        myarray = np.array(pimage)
+
+        # Gaussian smoothing
+        myarray = gaussian_filter(myarray, sigma=0.01)
+
+        # Reshape large image into stack of individual cell images
+        myarray = myarray.reshape(9, target, 9, target)
+        myarray = myarray.swapaxes(1, 2)
         myarray = myarray.reshape(-1, target, target)
         myarray = myarray[:, None, n:-n, n:-n]  # center crop the result to get 28x28 image
 
-        # MNIST is trained on black background, white lettering
-        background = np.mean(myarray[:, 0, :2,:2]) > 127.5     # white background if true
-        if background:
-            myarray = -1 * myarray + 255
-
-        # # compress image intensity range
-        # myarray += 100
-        # myarray = np.where(myarray > 255, 255, myarray)
-
         # Enforce pixel values from 0-255
-        img_flat = myarray.reshape(81,-1)
-        max_val = np.max(img_flat, axis=1)[:, None]
-        min_val = np.min(img_flat, axis=1)[:, None]
-        img_corr = 255.0 * (img_flat - min_val) / (max_val-min_val + np.finfo(float).eps)
-        myarray = img_corr.reshape(81, 1, 28, 28)
+        img_min = myarray.min()
+        img_max = myarray.max()
+        mprecision = np.finfo(float).eps
+        myarray = 255.0 * (myarray - img_min) / (img_max-img_min + mprecision)
+
+
+        # MNIST images are supposed to be black background, white numbers
+        background = np.mean(myarray[:, 0, :2, :2])
+
+        # white background if true
+        if background > 127.5:
+            myarray = -1 * myarray + 255
+            background = -1 * background + 255
+
+        myarray -= background
+
+        ## Make background value zero
+        # img_flat = myarray.squeeze().reshape(81, -1)
+        # img_flat = 255.0 * (img_flat - background) / \
+        #     (img_flat.max(axis=1)-background + np.finfo(float).eps)[:, None]
+        # myarray = img_flat.reshape(81, 1, 28, 28)
+        # myarray[np.nonzero(myarray < 0)] = 0
+
+        # # find bounding box containing number in each cell  (bbox didn't word sufficiently)
+        # x = 4
+        # bg_val = np.hstack((myarray[:, 0, 0:x, 0:x].reshape(81, -1),
+        #                     myarray[:, 0, 0:x, -x:-1].reshape(81, -1),
+        #                     myarray[:, 0, -x:-1, 0:x].reshape(81, -1),
+        #                     myarray[:, 0, -x:-1, -x:-1].reshape(81, -1)))     # check background vals in each corner
+        #
+        # bg_val_mean = np.mean(bg_val, axis=1)[:, None, None, None]            # must have same num. of dimensions as myarray
+        # bg_val_std = np.std(bg_val, axis=1)[:, None, None, None]
+        # inds = np.argwhere(myarray > (3 * bg_val_std + bg_val_mean))          # shape (N x 4), when N is num of nonzero values
+        #
+        # bbox = np.zeros((81, 4))
+        # for i in range(81):
+        #     img_inds = inds[np.nonzero(inds[:, 0] == i)]
+        #
+        #     # slice index max is not inclusive so we add 1
+        #     # img_inds could be empty if image doesn't contain a digit
+        #     if img_inds.any():
+        #         bbox[i, 0] = np.max(img_inds[:, 2]) + 1     # row max
+        #         bbox[i, 1] = np.min(img_inds[:, 2])         # row min
+        #         bbox[i, 2] = np.max(img_inds[:, 3]) + 1     # col max
+        #         bbox[i, 3] = np.min(img_inds[:, 3])         # col min
+        #
+        # # find bbox centers
+        # bbox_centers = np.column_stack(((bbox[:, 0] + bbox[:, 1]) // 2, (bbox[:, 2] + bbox[:, 3]) // 2))
+        # bbox_centers = np.where(bbox_centers == 0, 13, bbox_centers)    #  if no bbox was found, replace center with img
+        #                                                                 #  center so it is not shifted later
+        # shifts = bbox_centers - 13      # images are 28x28 so center is (14, 14) or 13 in python indexing
+        # shifts = shifts.astype(int)      # enforce integer shifts
+
+        # # center of mass calculation w/ thresholding
+        # ax = np.arange(28) + 1
+        # img_thresh = (myarray > (3 * bg_val_std + bg_val_mean)).squeeze()     # (img, row, col), i.e. (81, 28, 28)
+        # colsum = img_thresh.sum(axis=1) + np.finfo(float).eps
+        # rowsum = img_thresh.sum(axis=2) + np.finfo(float).eps
+        # x_c = (ax * colsum).sum(axis=1)/colsum.sum(axis=1) - 1                # back to python indexing
+        # y_c = (ax * rowsum).sum(axis=1)/rowsum.sum(axis=1) - 1
+        # shifts = np.vstack((y_c, x_c)) - 13.5
+        # shifts = shifts.round().astype(int)      # enforce integer shifts
+
+        # center of mass calculation w/ pixel values (i.e. weighted COM)
+        ax = np.arange(28) + 1
+        colsum = myarray.squeeze().sum(axis=1) + np.finfo(float).eps
+        rowsum = myarray.squeeze().sum(axis=2) + np.finfo(float).eps
+        x_c = (ax * colsum).sum(axis=1)/colsum.sum(axis=1) - 1                # back to python indexing
+        y_c = (ax * rowsum).sum(axis=1)/rowsum.sum(axis=1) - 1
+        com = np.vstack((y_c, x_c)) - 13.5                                    # center of mass relative to image center
+        shifts = -com.round().astype(int)                                     # shift COM to image center
+
+        # center numbers in image
+        for i in range(81):
+            temp = myarray[i, 0, :, :]
+            temp = np.roll(temp, (shifts[0, i], shifts[1, i]), axis=(0, 1))     # axis 0: U <-> D  axis 1: L <-> R
+            myarray[i, 0, :, :] = temp
 
         # feed the sequence of sudoku cell images through the trained model
         device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         model = MyNetwork().to(device)
         model.load_state_dict(torch.load('model/mnist_model_epoch_15.pth'))
 
-        mytens = torch.from_numpy(myarray) # shape (81, 1, 28, 28)
-        preds = model(mytens.to(device)).squeeze()  # shape (81, 10)
+        # evaluate each cell of the sudoku 9x9 array
+        mytens = torch.from_numpy(myarray)                                  # shape (81, 1, 28, 28)
+        preds = model(mytens.to(device)).squeeze().detach().cpu().numpy()   # shape (81, 10)
 
         # Predictions that have confidence below threshold are considered empty
-        print(mytens.shape)
-        print(preds.shape)
-        a = torch.argmax(preds, dim=1)
-        # b = torch.max(preds, dim=1)[0] < 0.9
-        # a[b] = 0
+        thresh = 0.45       # prediction probability threshold
+        a = np.argmax(preds, axis=1)
+        b = np.max(preds, axis=1)
+        a = np.where(b < thresh, 0, a)
         print(a.reshape(9, 9))
 
-        mydict = {'myarray': myarray, 'preds': preds.detach().cpu().numpy()}
+        mydict = {'myarray': myarray, 'preds': preds}
         with open('images.pkl', 'wb') as f:
             pkl.dump(mydict, f)
 
