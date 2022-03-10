@@ -382,7 +382,6 @@ class ImageViewer(QMainWindow):
         mprecision = np.finfo(float).eps
         myarray = 255.0 * (myarray - img_min) / (img_max-img_min + mprecision)
 
-
         # MNIST images are supposed to be black background, white numbers
         background = np.mean(myarray[:, 0, :2, :2])
 
