@@ -20,11 +20,10 @@ class MyNetwork(nn.Module):
 
         self.relu = nn.ReLU(inplace=True)
 
-
         # Encoder
-        self.conv1 = ConvLayer(1, 16, kernel_size=5, stride=1)
-        self.conv2 = ConvLayer(16, 32, kernel_size=5, stride=1)
-        self.cv2fc = nn.Conv2d(32, 32, kernel_size=28, stride=1)
+        self.conv1 = ConvLayer(1, 32, kernel_size=7, stride=1)
+        self.conv2 = ConvLayer(32, 32, kernel_size=5, stride=1)
+        self.cv2fc = nn.Conv2d(32, 64, kernel_size=28, stride=1)
 
         self.conv = nn.Sequential(
             self.conv1,
@@ -35,8 +34,8 @@ class MyNetwork(nn.Module):
             self.relu
         )
 
-        self.fc1 = nn.Linear(32, 32)
-        self.fc2 = nn.Linear(32, 10)
+        self.fc1 = nn.Linear(64, 64)
+        self.fc2 = nn.Linear(64, 10)
         self.softmax = nn.Softmax(dim=3)
 
         self.fc = nn.Sequential(
@@ -99,10 +98,12 @@ def train(args):
                                     transforms.ToTensor(),
                                     transforms.Lambda(lambda x: x.mul(255))])
 
-    # transform = transforms.Compose([transforms.Resize(args.img_size),
-    #                                 transforms.ToTensor(),
-    #                                 transforms.RandomAffine(20, translate=(0.20, 0.20), scale=(0.7, 1.3), shear=20),
-    #                                 transforms.Lambda(lambda x: x.mul(255))])
+    transform1 = transforms.Compose([transforms.Resize(args.img_size),
+                                    transforms.ToTensor(),
+                                    transforms.GaussianBlur(3, 0.5),
+                                    transforms.RandomAffine(5, translate=(0.10, 0.10), scale=(0.7, 1.3), shear=10),
+                                    transforms.Lambda(lambda x: x.mul(255))])
+
 
     mnist_data_train = torchvision.datasets.MNIST(args.datapath, transform=transform)
     mnist19_train = MNIST19(mnist_data_train)
@@ -112,7 +113,6 @@ def train(args):
     mylossfn = nn.CrossEntropyLoss()
 
     for epoch in range(int(args.epochs)):
-        # data_loader = torch.utils.data.DataLoader(mnist_data_train, batch_size=int(args.batch_size), shuffle=True)
         data_loader = torch.utils.data.DataLoader(mnist19_train, batch_size=int(args.batch_size), shuffle=True)
 
         iter_bar = tqdm(data_loader)
@@ -150,7 +150,6 @@ def test(args):
 
     # load test MNIST set
     mnist_data_test = torchvision.datasets.MNIST(args.datapath, train=False, transform=transform)
-    # data_loader = torch.utils.data.DataLoader(mnist_data_test, batch_size=1, shuffle=True)
     mnist19_test = MNIST19(mnist_data_test)
     data_loader = torch.utils.data.DataLoader(mnist19_test, batch_size=1, shuffle=True)
 
@@ -191,7 +190,6 @@ if __name__ == "__main__":
     parser.add_argument("--save", default='yes', help="save network if yes")
     parser.add_argument("--print", default=False, help="print average epoch training loss")
     parser.add_argument("--test-model", default=None, help="name of trained model to evaluate")
-
 
     args = parser.parse_args()
 

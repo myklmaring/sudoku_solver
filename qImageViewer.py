@@ -50,8 +50,8 @@
 # Author: Michael Maring
 ###############################################################################
 
-from PyQt5.QtCore import QDir, Qt
-from PyQt5.QtGui import QImage, QPainter, QPalette, QPixmap
+from PyQt5.QtCore import QDir, Qt, QPoint
+from PyQt5.QtGui import QImage, QPainter, QPalette, QPixmap, QPen, QFont
 from PyQt5.QtWidgets import (QAction, QApplication, QFileDialog, QLabel,
         QMainWindow, QMenu, QMessageBox, QScrollArea, QSizePolicy)
 from PyQt5.QtPrintSupport import QPrintDialog, QPrinter
@@ -59,26 +59,74 @@ from PyQt5.QtPrintSupport import QPrintDialog, QPrinter
 import numpy as np
 import matplotlib.pyplot as plt
 import sys
-from PIL import Image
-from digit_recognition import MyNetwork, ConvLayer
+import math
 import torch
 import pickle as pkl
+from PIL import Image
+from digit_recognition import MyNetwork, ConvLayer
 from scipy.ndimage.filters import gaussian_filter
+from solve_problem import sudoku_linprog
 
 
 
 
-class Digits(QMainWindow):
-    def __init__(self, image, parent=None):
-        super(Digits, self).__init__(parent)
-        self.image = image  # QImage object
-        self.imageLabel = QLabel(self)
-        self.imageLabel.setScaledContents(True)
-        self.resize(400, 400)
-        self.setWindowTitle("Check Digits")
-        self.pixmap = QPixmap.fromImage(self.image)
-        self.imageLabel.setPixmap(self.pixmap)
-        self.imageLabel.adjustSize()
+# class Digits(QMainWindow):
+#     def __init__(self, image, parent=None):
+#         super(Digits, self).__init__(parent)
+#         self.image = image  # QImage object
+#         self.imageLabel = QLabel(self)
+#         self.imageLabel.setScaledContents(True)
+#         self.resize(400, 400)
+#         self.setWindowTitle("Check Digits")
+#         self.pixmap = QPixmap.fromImage(self.image)
+#         self.imageLabel.setPixmap(self.pixmap)
+#         self.imageLabel.adjustSize()
+
+
+class Label(QLabel):
+    def __init__(self):
+        super().__init__()
+        self.scaleFactor = 1.0
+        self.display_initial_conds = False
+        self.cell_centers = None
+        self.initial_conds = None
+        self.initial_conds_index = np.zeros((9, 9)).astype(int)
+
+    def paintEvent(self, e):
+        if self.pixmap():
+            qp = QPainter()
+            qp.begin(self)
+            qp.drawPixmap(QPoint(), self.pixmap().scaled(self.scaleFactor * self.pixmap().size(), Qt.KeepAspectRatio))
+            qp.end()
+
+        if self.display_initial_conds and self.cell_centers.any() and self.initial_conds.any():
+            self.draw_centers(e)
+
+    def resizeEvent(self, e):
+        if self.pixmap():
+            self.scaleFactor = e.size().height()/self.pixmap().size().height()
+
+    def draw_centers(self, e):
+        qp = QPainter()
+        qp.begin(self)
+
+        pen = QPen(Qt.red)
+        pen.setWidth(1)
+        qp.setPen(pen)
+
+        font = QFont()
+        font.setFamily('Times')
+        font.setBold(True)
+        font.setPointSize(16)
+        qp.setFont(font)
+
+        for idx in range(81):
+            j = idx % 9
+            i = (idx - j) // 9
+            k = self.initial_conds_index[i, j]
+            qp.drawText(self.cell_centers[0, idx], self.cell_centers[1, idx], "{}".format(self.initial_conds[j, i, k]))
+
+        qp.end()
 
 
 class ImageViewer(QMainWindow):
@@ -88,7 +136,8 @@ class ImageViewer(QMainWindow):
         self.printer = QPrinter()
         self.scaleFactor = 0.0
 
-        self.imageLabel = QLabel()
+        # self.imageLabel = QLabel()
+        self.imageLabel = Label()
         self.imageLabel.setBackgroundRole(QPalette.Base)
         self.imageLabel.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Ignored)
         self.imageLabel.setScaledContents(True)
@@ -106,13 +155,20 @@ class ImageViewer(QMainWindow):
 
         # top left, top right, bottom left, bottom right
         self.corners = []    # corners of sudoku puzzle
-        self.finding_points = False
-        self.found_points = False
-        self.num_points = 4
-        self.l = 400        # sudoku puzzle side length in pixels (arbitrary choice)
-        self.image = None
-        self.digits = None
 
+        # status checks
+        self.finding_points = False
+        self.adjust_initial_conditions = False
+
+        # data members
+        self.num_points = 4
+        self.side_length = 400        # sudoku puzzle side length in pixels (arbitrary choice)
+        self.image = None
+        self.preds = None
+        self.initial_cond_idxs = np.zeros((9, 9))
+        self.initial_conds = np.zeros((9, 9))
+        self.sudoku_cell_centers = None
+        self.solution = None
 
     def open(self):
         fileName, _ = QFileDialog.getOpenFileName(self, "Open File",
@@ -146,28 +202,22 @@ class ImageViewer(QMainWindow):
             painter.setWindow(self.imageLabel.pixmap().rect())
             painter.drawPixmap(0, 0, self.imageLabel.pixmap())
 
-
     def zoomIn(self):
         self.scaleImage(1.25)
-
 
     def zoomOut(self):
         self.scaleImage(0.8)
 
-
     def normalSize(self):
         self.imageLabel.adjustSize()
         self.scaleFactor = 1.0
-
 
     def fitToWindow(self):
         fitToWindow = self.fitToWindowAct.isChecked()
         self.scrollArea.setWidgetResizable(fitToWindow)
         if not fitToWindow:
             self.normalSize()
-
         self.updateActions()
-
 
     def about(self):
         QMessageBox.about(self, "About Image Viewer",
@@ -213,12 +263,17 @@ class ImageViewer(QMainWindow):
         self.aboutQtAct = QAction("About &Qt", self,
                                   triggered=QApplication.instance().aboutQt)
 
-        self.findPoints = QAction("Find &Points", self, shortcut="Ctrl+p",
-                                  triggered=self.findPoints)
+        self.findCorners = QAction("Find &Corners", self, shortcut="Ctrl+c",
+                                   triggered=self.findCorners)
 
-        self.digitRecognition = QAction("Determine &Digits", self, shortcut="Ctrl+d",
-                                        triggered=self.digitRecognition)
+        self.findInitialConditions = QAction("Determine &Digits", self, shortcut="Ctrl+d",
+                                             triggered=self.findInitialConditions)
 
+        self.adjustInitialConditions = QAction("&Adjust Digits", self, shortcut="Ctrl+a",
+                                               triggered=self.adjustInitialConditions)
+
+        self.solvePuzzle = QAction("Solve Sudoku Puzzle", self, shortcut="Ctrl+e",
+                                   triggered=self.solvePuzzle)
 
     def createMenus(self):
         self.fileMenu = QMenu("File", self)
@@ -239,8 +294,10 @@ class ImageViewer(QMainWindow):
         self.helpMenu.addAction(self.aboutQtAct)
 
         self.actMenu = QMenu("Actions", self)
-        self.actMenu.addAction(self.findPoints)
-        self.actMenu.addAction(self.digitRecognition)
+        self.actMenu.addAction(self.findCorners)
+        self.actMenu.addAction(self.findInitialConditions)
+        self.actMenu.addAction(self.adjustInitialConditions)
+        self.actMenu.addAction(self.solvePuzzle)
 
         self.menuBar().addMenu(self.fileMenu)
         self.menuBar().addMenu(self.viewMenu)
@@ -269,40 +326,91 @@ class ImageViewer(QMainWindow):
         scrollBar.setValue(int(factor * scrollBar.value()
                                + ((factor - 1) * scrollBar.pageStep()/2)))
 
+    def findAbsoluteCoordinate(self, event):
+        # scale coordinate by the image scaling to get true coordinate
+        return (1/self.scaleFactor) * self.imageLabel.mapFromGlobal(self.mapToGlobal(event.pos()))
+
+    def incrementIndex(self, i, j, pos):
+        if pos:
+            self.imageLabel.initial_conds_index[i, j] += 1
+        else:
+            self.imageLabel.initial_conds_index[i, j] -= 1
+
+    def closestPoint(self, point):
+        mypoint = np.array([[point.x()], [point.y()]])
+        diff = self.sudoku_cell_centers - mypoint
+        min_idx = np.argmin((diff ** 2).sum(axis=0))
+        j = min_idx % 9
+        i = (min_idx - j) // 9
+
+        return i, j
 
     def mousePressEvent(self, event):
 
         if event.button() == Qt.LeftButton:
 
-            #  check if finding points
+            # 4-point affine transformation for sudoku square
             if self.finding_points:
-                # check if you have points left to collect
                 if len(self.corners) < self.num_points:
-                    # scale coordinate by the image scaling to get true coordinate
-                    mypoint = (1/self.scaleFactor) * self.imageLabel.mapFromGlobal(self.mapToGlobal(event.pos()))
+                    mypoint = self.findAbsoluteCoordinate(event)
                     self.corners.append(mypoint)
                 else:
                     self.finding_points = False
-                    self.found_points = True        # needed in order to progress to other steps
 
+            # find closest sudoku cell location and increment initial condition index
+            if self.imageLabel.display_initial_conds and self.sudoku_cell_centers.any():
+                i, j = self.closestPoint(self.findAbsoluteCoordinate(event))
+                self.incrementIndex(i, j, True)
+                self.imageLabel.update()
 
-    def findPoints(self):
+        if event.button() == Qt.RightButton:
+
+            # find closest sudoku cell location and decrement initial condition index
+            if self.imageLabel.display_initial_conds and self.sudoku_cell_centers.any():
+                i, j = self.closestPoint(self.findAbsoluteCoordinate(event))
+                self.incrementIndex(i, j, False)
+                self.imageLabel.update()
+
+    def findCorners(self):
         self.corners = []
         self.finding_points = True
 
+    def adjustInitialConditions(self):
+        self.imageLabel.display_initial_conds = not self.imageLabel.display_initial_conds
+        self.imageLabel.update()
+
+    def displayText(self):
+        pass
 
     def findDistortion(self):
-        """ take sudoku box corners and calculate the affine transformation for a proper square"""
+        """ take sudoku box corners and calculate the affine transformation for a square
+            Equation: A = Bx
 
-        p1 = (0,0)
-        p2 = (0, self.l)
-        p3 = (self.l, 0)
-        p4 = (self.l, self.l)
+            Use x to define the affine matrix for the equation (Y = PX)
 
-        Y = np.array([self.corners[0].x(), self.corners[0].y(), self.corners[1].x(), self.corners[1].y(),
+            P = [[x(0) x(1) x(2)],  Y = [[y(0)],    X = [[x(0)],
+                 [x(3) x(4) x(5)],       [y(1)],         [x(1)],
+                 [ 0    0    1  ]]       [  1 ]]         [  1 ]]
+
+            P - affine matrix transformation [from new coordinate system to original coordinate system]
+            X - pixel location in new coordinate system (new_image), i.e. the arbitrary square we define
+            Y - pixel location in image coordinate system (image), i.e. the source image
+        """
+
+        # Matrix Coordinate System (i.e. 0,0 is top left, O,L is top right, etc.)
+        p1 = (0, 0)                                 # Top Left
+        p2 = (0, self.side_length)                  # Top Right
+        p3 = (self.side_length, 0)                  # Bottom Left
+        p4 = (self.side_length, self.side_length)   # Bottom Right
+
+        # Note to self:
+        # This derivation uses homogeneous coordinates
+        # i.e. [x,y] <===> [u, v, 1]
+        # also note that this coordinate system uses euclidean coordinates not row, col coordinates of matrices
+        A = np.array([self.corners[0].x(), self.corners[0].y(), self.corners[1].x(), self.corners[1].y(),
                       self.corners[2].x(), self.corners[2].y(), self.corners[3].x(), self.corners[3].y()]).reshape(8, 1)
 
-        X = np.array([[p1[0], p1[1], 1, 0, 0, 0],
+        B = np.array([[p1[0], p1[1], 1, 0, 0, 0],
                       [0, 0, 0, p1[0], p1[1], 1],
                       [p2[0], p2[1], 1, 0, 0, 0],
                       [0, 0, 0, p2[0], p2[1], 1],
@@ -311,23 +419,28 @@ class ImageViewer(QMainWindow):
                       [p4[0], p4[1], 1, 0, 0, 0],
                       [0, 0, 0, p4[0], p4[1], 1]])
 
-        T = np.linalg.pinv(X) @ Y
-        T = np.vstack((T.reshape(2,3), np.array([0, 0, 1])))
+        x = np.linalg.pinv(B) @ A
+        P = np.vstack((x.reshape(2, 3), np.array([0, 0, 1])))
 
-        new_image = np.zeros((self.l, self.l, 3))
-        numbers = np.tile(np.arange(self.l)[:, None], self.l)
-        rows = numbers.reshape(-1)
-        cols = numbers.T.reshape(-1)
-        coord_mat = np.array([cols, rows, np.ones_like(rows)])
-        coord_t_mat = np.around(T @ coord_mat)[:2, :]
-        coord_mat = coord_mat[:2, :]
+        new_image = np.zeros((self.side_length, self.side_length, 3))
+        xv, yv = np.meshgrid(np.arange(self.side_length), np.arange(self.side_length))
+        X = np.vstack((xv.flatten(), yv.flatten(), np.ones(xv.size))).astype(int)
+        Y = np.round(P @ X).astype(int)
 
-        for i in range(coord_mat.shape[1]):
-            new_image[coord_mat[0,i], coord_mat[1,i], :] = (
-                self.image.pixelColor(coord_t_mat[0,i], coord_t_mat[1,i]).red(),
-                self.image.pixelColor(coord_t_mat[0, i], coord_t_mat[1, i]).green(),
-                self.image.pixelColor(coord_t_mat[0, i], coord_t_mat[1, i]).blue()
+        for i in range(X.shape[1]):
+            new_image[X[0, i], X[1, i], :] = (
+                self.image.pixelColor(Y[0, i], Y[1, i]).red(),
+                self.image.pixelColor(Y[0, i], Y[1, i]).green(),
+                self.image.pixelColor(Y[0, i], Y[1, i]).blue()
             )
+
+        # find sudoku cell centers in image coordinate system
+        a = np.linspace(self.side_length/18, self.side_length - self.side_length/18, 9)
+        xv, yv = np.meshgrid(a, a)       # sudoku cell centers in new coordinate system, i.e. square
+        X_centers = np.vstack((xv.flatten(), yv.flatten(), np.ones(xv.size))).astype(int)
+        self.sudoku_cell_centers = np.round(P @ X_centers)[:2, :].astype(int)
+        print()
+        self.imageLabel.cell_centers = self.sudoku_cell_centers
 
         return new_image
 
@@ -351,14 +464,14 @@ class ImageViewer(QMainWindow):
         return cr * image[:, :, 0] + cg * image[:, :, 1] + cb * image[:, :, 2]
 
 
-    def digitRecognition(self):
+    def findInitialConditions(self):
         image = self.findDistortion()
         image = self.toGrayscale(image)
 
-        # Display the cropped image
-        im = self.numpyToQimage(image)
-        self.digits = Digits(im, self)
-        self.digits.show()
+        # # Display the cropped image
+        # im = self.numpyToQimage(image)
+        # self.digits = Digits(im, self)
+        # self.digits.show()
 
         # Get rid of cell borders
         target = 34
@@ -368,7 +481,7 @@ class ImageViewer(QMainWindow):
         myarray = np.array(pimage)
 
         # Gaussian smoothing
-        myarray = gaussian_filter(myarray, sigma=0.01)
+        myarray = gaussian_filter(myarray, sigma=1)
 
         # Reshape large image into stack of individual cell images
         myarray = myarray.reshape(9, target, 9, target)
@@ -389,63 +502,23 @@ class ImageViewer(QMainWindow):
         if background > 127.5:
             myarray = -1 * myarray + 255
             background = -1 * background + 255
+        myarray -= background - mprecision
 
-        myarray -= background
+        # set erroneous negative pixel values to zero
+        # This happens because the background pixels aren't the lowest values.  There happens to be
+        # spurious pixels on the fringes of the digit that are lower.
+        negative_inds = np.where(myarray < 0)
+        myarray[negative_inds] = mprecision
 
-        ## Make background value zero
-        # img_flat = myarray.squeeze().reshape(81, -1)
-        # img_flat = 255.0 * (img_flat - background) / \
-        #     (img_flat.max(axis=1)-background + np.finfo(float).eps)[:, None]
-        # myarray = img_flat.reshape(81, 1, 28, 28)
-        # myarray[np.nonzero(myarray < 0)] = 0
-
-        # # find bounding box containing number in each cell  (bbox didn't word sufficiently)
-        # x = 4
-        # bg_val = np.hstack((myarray[:, 0, 0:x, 0:x].reshape(81, -1),
-        #                     myarray[:, 0, 0:x, -x:-1].reshape(81, -1),
-        #                     myarray[:, 0, -x:-1, 0:x].reshape(81, -1),
-        #                     myarray[:, 0, -x:-1, -x:-1].reshape(81, -1)))     # check background vals in each corner
-        #
-        # bg_val_mean = np.mean(bg_val, axis=1)[:, None, None, None]            # must have same num. of dimensions as myarray
-        # bg_val_std = np.std(bg_val, axis=1)[:, None, None, None]
-        # inds = np.argwhere(myarray > (3 * bg_val_std + bg_val_mean))          # shape (N x 4), when N is num of nonzero values
-        #
-        # bbox = np.zeros((81, 4))
-        # for i in range(81):
-        #     img_inds = inds[np.nonzero(inds[:, 0] == i)]
-        #
-        #     # slice index max is not inclusive so we add 1
-        #     # img_inds could be empty if image doesn't contain a digit
-        #     if img_inds.any():
-        #         bbox[i, 0] = np.max(img_inds[:, 2]) + 1     # row max
-        #         bbox[i, 1] = np.min(img_inds[:, 2])         # row min
-        #         bbox[i, 2] = np.max(img_inds[:, 3]) + 1     # col max
-        #         bbox[i, 3] = np.min(img_inds[:, 3])         # col min
-        #
-        # # find bbox centers
-        # bbox_centers = np.column_stack(((bbox[:, 0] + bbox[:, 1]) // 2, (bbox[:, 2] + bbox[:, 3]) // 2))
-        # bbox_centers = np.where(bbox_centers == 0, 13, bbox_centers)    #  if no bbox was found, replace center with img
-        #                                                                 #  center so it is not shifted later
-        # shifts = bbox_centers - 13      # images are 28x28 so center is (14, 14) or 13 in python indexing
-        # shifts = shifts.astype(int)      # enforce integer shifts
-
-        # # center of mass calculation w/ thresholding
-        # ax = np.arange(28) + 1
-        # img_thresh = (myarray > (3 * bg_val_std + bg_val_mean)).squeeze()     # (img, row, col), i.e. (81, 28, 28)
-        # colsum = img_thresh.sum(axis=1) + np.finfo(float).eps
-        # rowsum = img_thresh.sum(axis=2) + np.finfo(float).eps
-        # x_c = (ax * colsum).sum(axis=1)/colsum.sum(axis=1) - 1                # back to python indexing
-        # y_c = (ax * rowsum).sum(axis=1)/rowsum.sum(axis=1) - 1
-        # shifts = np.vstack((y_c, x_c)) - 13.5
-        # shifts = shifts.round().astype(int)      # enforce integer shifts
-
-        # center of mass calculation w/ pixel values (i.e. weighted COM)
+        # center of mass calculation w/ thresholded pixel values (i.e. center of mass)
+        pix_cutoff = 20
         ax = np.arange(28) + 1
-        colsum = myarray.squeeze().sum(axis=1) + np.finfo(float).eps
-        rowsum = myarray.squeeze().sum(axis=2) + np.finfo(float).eps
-        x_c = (ax * colsum).sum(axis=1)/colsum.sum(axis=1) - 1                # back to python indexing
-        y_c = (ax * rowsum).sum(axis=1)/rowsum.sum(axis=1) - 1
-        com = np.vstack((y_c, x_c)) - 13.5                                    # center of mass relative to image center
+        img_thresh = (myarray > pix_cutoff)
+        downCols = img_thresh.squeeze().sum(axis=1) + np.finfo(float).eps
+        downRows = img_thresh.squeeze().sum(axis=2) + np.finfo(float).eps
+        col_c = (ax * downCols).sum(axis=1)/downCols.sum(axis=1) - 1          # back to python indexing
+        row_c = (ax * downRows).sum(axis=1)/downRows.sum(axis=1) - 1
+        com = np.vstack((row_c, col_c)) - 13.5                                # center of mass relative to image center
         shifts = -com.round().astype(int)                                     # shift COM to image center
 
         # center numbers in image
@@ -461,18 +534,35 @@ class ImageViewer(QMainWindow):
 
         # evaluate each cell of the sudoku 9x9 array
         mytens = torch.from_numpy(myarray)                                  # shape (81, 1, 28, 28)
-        preds = model(mytens.to(device)).squeeze().detach().cpu().numpy()   # shape (81, 10)
+        self.preds = model(mytens.to(device)).squeeze().detach().cpu().numpy()   # shape (81, 10)
 
         # Predictions that have confidence below threshold are considered empty
-        thresh = 0.45       # prediction probability threshold
-        a = np.argmax(preds, axis=1)
-        b = np.max(preds, axis=1)
-        a = np.where(b < thresh, 0, a)
-        print(a.reshape(9, 9))
+        confidence_thresh = 0.35       # prediction probability threshold
+        initial_conds = np.argmax(self.preds, axis=1)
+        confidence_max = np.max(self.preds, axis=1)
+        self.initial_conds = np.where(confidence_max < confidence_thresh, 0, initial_conds).reshape(9, 9)
+        print(self.initial_conds)
 
-        mydict = {'myarray': myarray, 'preds': preds}
+        # Assign Initial Conditions to imageLabel for Display Purposes
+        # (indices that return the sorted predictions for each sudoku cell)
+        initial_conds_argsort = np.argsort(self.preds, axis=1)
+        for i, val in enumerate(confidence_max):
+            if val < confidence_thresh:
+                initial_conds_argsort[i, :] = 0
+
+        self.imageLabel.initial_conds = initial_conds_argsort[:, ::-1].reshape(9, 9, 10)
+
+        # save myarray and predictions
+        mydict = {'myarray': myarray, 'preds': self.preds}
         with open('images.pkl', 'wb') as f:
             pkl.dump(mydict, f)
+
+    def solvePuzzle(self):
+        solver = sudoku_linprog()
+        solver.solve(self.initial_conds)
+
+        # display solution
+        # solver.solution
 
 
 if __name__ == '__main__':
