@@ -68,29 +68,17 @@ from scipy.ndimage.filters import gaussian_filter
 from solve_problem import sudoku_linprog
 
 
-
-
-# class Digits(QMainWindow):
-#     def __init__(self, image, parent=None):
-#         super(Digits, self).__init__(parent)
-#         self.image = image  # QImage object
-#         self.imageLabel = QLabel(self)
-#         self.imageLabel.setScaledContents(True)
-#         self.resize(400, 400)
-#         self.setWindowTitle("Check Digits")
-#         self.pixmap = QPixmap.fromImage(self.image)
-#         self.imageLabel.setPixmap(self.pixmap)
-#         self.imageLabel.adjustSize()
-
-
 class Label(QLabel):
     def __init__(self):
         super().__init__()
         self.scaleFactor = 1.0
+        self.display = False
         self.display_initial_conds = False
+        self.display_solution = False
         self.cell_centers = None
         self.initial_conds = None
         self.initial_conds_index = np.zeros((9, 9)).astype(int)
+        self.solution = None
 
     def paintEvent(self, e):
         if self.pixmap():
@@ -99,14 +87,17 @@ class Label(QLabel):
             qp.drawPixmap(QPoint(), self.pixmap().scaled(self.scaleFactor * self.pixmap().size(), Qt.KeepAspectRatio))
             qp.end()
 
-        if self.display_initial_conds and self.cell_centers.any() and self.initial_conds.any():
-            self.draw_centers(e)
+        if self.display and self.display_initial_conds and self.initial_conds is not None:
+            self.draw_centers(0)
+
+        if self.display and self.display_solution and self.solution is not None:
+            self.draw_centers(1)
 
     def resizeEvent(self, e):
         if self.pixmap():
             self.scaleFactor = e.size().height()/self.pixmap().size().height()
 
-    def draw_centers(self, e):
+    def draw_centers(self, mode):
         qp = QPainter()
         qp.begin(self)
 
@@ -120,11 +111,20 @@ class Label(QLabel):
         font.setPointSize(16)
         qp.setFont(font)
 
-        for idx in range(81):
-            j = idx % 9
-            i = (idx - j) // 9
-            k = self.initial_conds_index[i, j]
-            qp.drawText(self.cell_centers[0, idx], self.cell_centers[1, idx], "{}".format(self.initial_conds[j, i, k]))
+        # Draw Solution
+        if mode:
+            for idx in range(81):
+                j = idx % 9
+                i = (idx - j) // 9
+                qp.drawText(self.cell_centers[0, idx], self.cell_centers[1, idx], "{}".format(self.solution[j, i]))
+
+        # Draw Initial Conditions
+        else:
+            for idx in range(81):
+                j = idx % 9
+                i = (idx - j) // 9
+                k = self.initial_conds_index[i, j]
+                qp.drawText(self.cell_centers[0, idx], self.cell_centers[1, idx], "{}".format(self.initial_conds[j, i, k]))
 
         qp.end()
 
@@ -136,7 +136,6 @@ class ImageViewer(QMainWindow):
         self.printer = QPrinter()
         self.scaleFactor = 0.0
 
-        # self.imageLabel = QLabel()
         self.imageLabel = Label()
         self.imageLabel.setBackgroundRole(QPalette.Base)
         self.imageLabel.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Ignored)
@@ -159,16 +158,12 @@ class ImageViewer(QMainWindow):
         # status checks
         self.finding_points = False
         self.adjust_initial_conditions = False
+        self.solving_problem = False
 
         # data members
         self.num_points = 4
         self.side_length = 400        # sudoku puzzle side length in pixels (arbitrary choice)
         self.image = None
-        self.preds = None
-        self.initial_cond_idxs = np.zeros((9, 9))
-        self.initial_conds = np.zeros((9, 9))
-        self.sudoku_cell_centers = None
-        self.solution = None
 
     def open(self):
         fileName, _ = QFileDialog.getOpenFileName(self, "Open File",
@@ -269,10 +264,10 @@ class ImageViewer(QMainWindow):
         self.findInitialConditions = QAction("Determine &Digits", self, shortcut="Ctrl+d",
                                              triggered=self.findInitialConditions)
 
-        self.adjustInitialConditions = QAction("&Adjust Digits", self, shortcut="Ctrl+a",
-                                               triggered=self.adjustInitialConditions)
+        self.toggleDisplay = QAction("Toggle Number Display", self, shortcut="Ctrl+x",
+                                               triggered=self.toggleDisplay)
 
-        self.solvePuzzle = QAction("Solve Sudoku Puzzle", self, shortcut="Ctrl+e",
+        self.solvePuzzle = QAction("Solve Sudoku Puzzle", self, shortcut="Ctrl+z",
                                    triggered=self.solvePuzzle)
 
     def createMenus(self):
@@ -296,7 +291,7 @@ class ImageViewer(QMainWindow):
         self.actMenu = QMenu("Actions", self)
         self.actMenu.addAction(self.findCorners)
         self.actMenu.addAction(self.findInitialConditions)
-        self.actMenu.addAction(self.adjustInitialConditions)
+        self.actMenu.addAction(self.toggleDisplay)
         self.actMenu.addAction(self.solvePuzzle)
 
         self.menuBar().addMenu(self.fileMenu)
@@ -338,7 +333,7 @@ class ImageViewer(QMainWindow):
 
     def closestPoint(self, point):
         mypoint = np.array([[point.x()], [point.y()]])
-        diff = self.sudoku_cell_centers - mypoint
+        diff = self.imageLabel.cell_centers - mypoint
         min_idx = np.argmin((diff ** 2).sum(axis=0))
         j = min_idx % 9
         i = (min_idx - j) // 9
@@ -358,7 +353,7 @@ class ImageViewer(QMainWindow):
                     self.finding_points = False
 
             # find closest sudoku cell location and increment initial condition index
-            if self.imageLabel.display_initial_conds and self.sudoku_cell_centers.any():
+            if self.imageLabel.display_initial_conds and self.imageLabel.cell_centers.any():
                 i, j = self.closestPoint(self.findAbsoluteCoordinate(event))
                 self.incrementIndex(i, j, True)
                 self.imageLabel.update()
@@ -366,7 +361,7 @@ class ImageViewer(QMainWindow):
         if event.button() == Qt.RightButton:
 
             # find closest sudoku cell location and decrement initial condition index
-            if self.imageLabel.display_initial_conds and self.sudoku_cell_centers.any():
+            if self.imageLabel.display_initial_conds and self.imageLabel.cell_centers.any():
                 i, j = self.closestPoint(self.findAbsoluteCoordinate(event))
                 self.incrementIndex(i, j, False)
                 self.imageLabel.update()
@@ -375,8 +370,8 @@ class ImageViewer(QMainWindow):
         self.corners = []
         self.finding_points = True
 
-    def adjustInitialConditions(self):
-        self.imageLabel.display_initial_conds = not self.imageLabel.display_initial_conds
+    def toggleDisplay(self):
+        self.imageLabel.display = not self.imageLabel.display
         self.imageLabel.update()
 
     def displayText(self):
@@ -438,9 +433,7 @@ class ImageViewer(QMainWindow):
         a = np.linspace(self.side_length/18, self.side_length - self.side_length/18, 9)
         xv, yv = np.meshgrid(a, a)       # sudoku cell centers in new coordinate system, i.e. square
         X_centers = np.vstack((xv.flatten(), yv.flatten(), np.ones(xv.size))).astype(int)
-        self.sudoku_cell_centers = np.round(P @ X_centers)[:2, :].astype(int)
-        print()
-        self.imageLabel.cell_centers = self.sudoku_cell_centers
+        self.imageLabel.cell_centers = np.round(P @ X_centers)[:2, :].astype(int)
 
         return new_image
 
@@ -467,11 +460,6 @@ class ImageViewer(QMainWindow):
     def findInitialConditions(self):
         image = self.findDistortion()
         image = self.toGrayscale(image)
-
-        # # Display the cropped image
-        # im = self.numpyToQimage(image)
-        # self.digits = Digits(im, self)
-        # self.digits.show()
 
         # Get rid of cell borders
         target = 34
@@ -534,36 +522,53 @@ class ImageViewer(QMainWindow):
 
         # evaluate each cell of the sudoku 9x9 array
         mytens = torch.from_numpy(myarray)                                  # shape (81, 1, 28, 28)
-        self.preds = model(mytens.to(device)).squeeze().detach().cpu().numpy()   # shape (81, 10)
+        preds = model(mytens.to(device)).squeeze().detach().cpu().numpy()   # shape (81, 10)
 
         # Predictions that have confidence below threshold are considered empty
         confidence_thresh = 0.35       # prediction probability threshold
-        initial_conds = np.argmax(self.preds, axis=1)
-        confidence_max = np.max(self.preds, axis=1)
-        self.initial_conds = np.where(confidence_max < confidence_thresh, 0, initial_conds).reshape(9, 9)
-        print(self.initial_conds)
+        initial_conds = np.argmax(preds, axis=1)
+        confidence_max = np.max(preds, axis=1)
+        print(np.where(confidence_max < confidence_thresh, 0, initial_conds).reshape(9, 9))
 
         # Assign Initial Conditions to imageLabel for Display Purposes
         # (indices that return the sorted predictions for each sudoku cell)
-        initial_conds_argsort = np.argsort(self.preds, axis=1)
+        initial_conds_argsort = np.argsort(preds, axis=1)
         for i, val in enumerate(confidence_max):
             if val < confidence_thresh:
                 initial_conds_argsort[i, :] = 0
 
         self.imageLabel.initial_conds = initial_conds_argsort[:, ::-1].reshape(9, 9, 10)
 
-        # save myarray and predictions
-        mydict = {'myarray': myarray, 'preds': self.preds}
-        with open('images.pkl', 'wb') as f:
-            pkl.dump(mydict, f)
+        # Display Initial Conditions
+        self.imageLabel.display = True
+        self.imageLabel.display_initial_conds = True
+        self.imageLabel.update()
 
     def solvePuzzle(self):
         solver = sudoku_linprog()
-        solver.solve(self.initial_conds)
+
+        iv, jv = np.meshgrid(np.arange(9), np.arange(9), indexing='ij')
+        kv = self.imageLabel.initial_conds_index
+        initial_problem = np.zeros((9, 9))
+
+        for idx in range(81):
+            j = idx % 9
+            i = (idx - j) // 9
+
+            l = iv[i, j]
+            m = jv[i, j]
+            n = kv[i, j]
+            initial_problem[i, j] = self.imageLabel.initial_conds[l, m, n]
+
+
+        if self.imageLabel.initial_conds is not None:
+            solver.solve(initial_problem.astype(int))
 
         # display solution
-        # solver.solution
-
+        self.imageLabel.solution = solver.solution
+        self.imageLabel.display_initial_conds = False
+        self.imageLabel.display_solution = True
+        self.imageLabel.update()
 
 if __name__ == '__main__':
     app = QApplication(sys.argv)
