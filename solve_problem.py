@@ -100,6 +100,16 @@ if __name__ == "__main__":
                    [4, 9, 3, 1, 5, 6, 2, 7, 8], [8, 7, 2, 4, 3, 9, 6, 1, 5],
                    [6, 5, 1, 7, 2, 8, 4, 9, 3]])
 
+    initial_puzzle4 = np.array([[1, 5, 6, 3, 0, 4, 2, 0, 0],
+                                [9, 0, 0, 1, 8, 0, 0, 7, 0],
+                                [8, 0, 0, 0, 6, 0, 1, 4, 5],
+                                [0, 8, 3, 0, 9, 6, 5, 0, 7],
+                                [0, 0, 4, 0, 0, 0, 0, 0, 0],
+                                [0, 1, 9, 7, 0, 3, 8, 0, 4],
+                                [4, 0, 0, 5, 0, 1, 7, 6, 2],
+                                [7, 0, 0, 0, 0, 0, 0, 0, 0],
+                                [3, 0, 0, 0, 0, 7, 0, 0, 9]])
+
     # randomize initial constraints for new puzzle using solved puzzle
     percent = 0.35     # percentage of missing entries for a randomly generated new puzzle
     numbers = np.tile(np.arange(9)[:, None], 9)
@@ -112,10 +122,5 @@ if __name__ == "__main__":
 
     # solve new puzzle with random initial constraints
     solver = sudoku_linprog()
-    solver.solve(new_puzzle)
-
-    print("Initial Problem: ")
-    print(new_puzzle)
-
-    print("Solution: ")
+    solver.solve(initial_puzzle4)
     print(solver.solution)

@@ -1,49 +1,6 @@
-#!/usr/bin/env python
-
-
 #############################################################################
-##
-## Copyright (C) 2013 Riverbank Computing Limited.
-## Copyright (C) 2010 Nokia Corporation and/or its subsidiary(-ies).
-## All rights reserved.
-##
-## This file is part of the examples of PyQt.
-##
-## $QT_BEGIN_LICENSE:BSD$
-## You may use this file under the terms of the BSD license as follows:
-##
-## "Redistribution and use in source and binary forms, with or without
-## modification, are permitted provided that the following conditions are
-## met:
-##   * Redistributions of source code must retain the above copyright
-##     notice, this list of conditions and the following disclaimer.
-##   * Redistributions in binary form must reproduce the above copyright
-##     notice, this list of conditions and the following disclaimer in
-##     the documentation and/or other materials provided with the
-##     distribution.
-##   * Neither the name of Nokia Corporation and its Subsidiary(-ies) nor
-##     the names of its contributors may be used to endorse or promote
-##     products derived from this software without specific prior written
-##     permission.
-##
-## THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS
-## "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT
-## LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR
-## A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT
-## OWNER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL,
-## SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT
-## LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE,
-## DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY
-## THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
-## (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
-## OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE."
-## $QT_END_LICENSE$
-##
-#############################################################################
-
-#############################################################################
-# Reference: https://github.com/baoboa/pyqt5/blob/master/examples/widgets/imageviewer.py
-#            https://stackoverflow.com/questions/36768033/pyqt-how-to-open-new-window
+# PyQt5 image viewer reference:
+# https://github.com/baoboa/pyqt5/blob/master/examples/widgets/imageviewer.py
 # Date: 3/09/21
 #
 # Last Changed:
@@ -116,7 +73,8 @@ class Label(QLabel):
             for idx in range(81):
                 j = idx % 9
                 i = (idx - j) // 9
-                qp.drawText(self.cell_centers[0, idx], self.cell_centers[1, idx], "{}".format(self.solution[j, i]))
+                qp.drawText(self.scaleFactor * self.cell_centers[0, idx], self.scaleFactor * self.cell_centers[1, idx],
+                            "{}".format(self.solution[i, j]))
 
         # Draw Initial Conditions
         else:
@@ -124,7 +82,8 @@ class Label(QLabel):
                 j = idx % 9
                 i = (idx - j) // 9
                 k = self.initial_conds_index[i, j]
-                qp.drawText(self.cell_centers[0, idx], self.cell_centers[1, idx], "{}".format(self.initial_conds[j, i, k]))
+                qp.drawText(self.scaleFactor * self.cell_centers[0, idx], self.scaleFactor * self.cell_centers[1, idx],
+                            "{}".format(self.initial_conds[i, j, k]))
 
         qp.end()
 
@@ -327,9 +286,11 @@ class ImageViewer(QMainWindow):
 
     def incrementIndex(self, i, j, pos):
         if pos:
-            self.imageLabel.initial_conds_index[i, j] += 1
+            if self.imageLabel.initial_conds_index[i, j] < 9:
+                self.imageLabel.initial_conds_index[i, j] += 1
         else:
-            self.imageLabel.initial_conds_index[i, j] -= 1
+            if self.imageLabel.initial_conds_index[i, j] > 0:
+                self.imageLabel.initial_conds_index[i, j] -= 1
 
     def closestPoint(self, point):
         mypoint = np.array([[point.x()], [point.y()]])
@@ -433,7 +394,13 @@ class ImageViewer(QMainWindow):
         a = np.linspace(self.side_length/18, self.side_length - self.side_length/18, 9)
         xv, yv = np.meshgrid(a, a)       # sudoku cell centers in new coordinate system, i.e. square
         X_centers = np.vstack((xv.flatten(), yv.flatten(), np.ones(xv.size))).astype(int)
-        self.imageLabel.cell_centers = np.round(P @ X_centers)[:2, :].astype(int)
+        temp_centers = np.round(P @ X_centers)[:2, :].astype(int)
+
+        # reshape temp_centers because points go down columns not across rows
+        x = temp_centers[0, :].reshape(9, 9).T
+        y = temp_centers[1, :].reshape(9, 9).T
+        self.imageLabel.cell_centers = np.vstack((x.reshape(-1), y.reshape(-1)))
+
 
         return new_image
 
@@ -528,7 +495,7 @@ class ImageViewer(QMainWindow):
         confidence_thresh = 0.35       # prediction probability threshold
         initial_conds = np.argmax(preds, axis=1)
         confidence_max = np.max(preds, axis=1)
-        print(np.where(confidence_max < confidence_thresh, 0, initial_conds).reshape(9, 9))
+        # print(np.where(confidence_max < confidence_thresh, 0, initial_conds).reshape(9, 9))
 
         # Assign Initial Conditions to imageLabel for Display Purposes
         # (indices that return the sorted predictions for each sudoku cell)
@@ -547,22 +514,17 @@ class ImageViewer(QMainWindow):
     def solvePuzzle(self):
         solver = sudoku_linprog()
 
-        iv, jv = np.meshgrid(np.arange(9), np.arange(9), indexing='ij')
         kv = self.imageLabel.initial_conds_index
-        initial_problem = np.zeros((9, 9))
+        initial_problem = np.zeros((9, 9)).astype(int)
 
         for idx in range(81):
             j = idx % 9
             i = (idx - j) // 9
-
-            l = iv[i, j]
-            m = jv[i, j]
-            n = kv[i, j]
-            initial_problem[i, j] = self.imageLabel.initial_conds[l, m, n]
-
+            k = self.imageLabel.initial_conds_index[i, j]
+            initial_problem[i, j] = self.imageLabel.initial_conds[i, j, k]
 
         if self.imageLabel.initial_conds is not None:
-            solver.solve(initial_problem.astype(int))
+            solver.solve(initial_problem)
 
         # display solution
         self.imageLabel.solution = solver.solution
