@@ -10,7 +10,7 @@
 from PyQt5.QtCore import QDir, Qt, QPoint
 from PyQt5.QtGui import QImage, QPainter, QPalette, QPixmap, QPen, QFont
 from PyQt5.QtWidgets import (QAction, QApplication, QFileDialog, QLabel,
-        QMainWindow, QMenu, QMessageBox, QScrollArea, QSizePolicy)
+        QMainWindow, QMenu, QMessageBox, QScrollArea, QSizePolicy, QStatusBar)
 from PyQt5.QtPrintSupport import QPrintDialog, QPrinter
 
 import numpy as np
@@ -104,6 +104,11 @@ class ImageViewer(QMainWindow):
         self.scrollArea.setBackgroundRole(QPalette.Dark)
         self.scrollArea.setWidget(self.imageLabel)
         self.setCentralWidget(self.scrollArea)
+        self.statusBar = QStatusBar()
+        self.setStatusBar(self.statusBar)
+        self.message = QLabel()
+        self.message.setText("Open a Puzzle")
+        self.statusBar.addWidget(self.message)
 
         self.createActions()
         self.createMenus()
@@ -116,13 +121,13 @@ class ImageViewer(QMainWindow):
 
         # status checks
         self.finding_points = False
-        self.adjust_initial_conditions = False
         self.solving_problem = False
 
         # data members
         self.num_points = 4
         self.side_length = 400        # sudoku puzzle side length in pixels (arbitrary choice)
         self.image = None
+        self.solver = sudoku_linprog()
 
     def open(self):
         fileName, _ = QFileDialog.getOpenFileName(self, "Open File",
@@ -258,6 +263,30 @@ class ImageViewer(QMainWindow):
         self.menuBar().addMenu(self.actMenu)
         self.menuBar().addMenu(self.helpMenu)
 
+        self.menuBar().triggered[QAction].connect(self.processtrigger)
+
+
+    def processtrigger(self, q):
+        """ create an event whenever a menu option is pressed and update the status bar """
+
+        if (q.text() == "Find &Corners"):
+            self.message.setText("Click on the Puzzle Corners in Order (Top Left, Top Right, Bottom Left, Bottom Right)")
+            self.statusBar.addWidget(self.message)
+
+        if (q.text() == "Determine &Digits"):
+            self.message.setText("Check Initial Conditions.  Left/Right Mouse Click to Change Prediction")
+            self.statusBar.addWidget(self.message)
+
+        if (q.text() == "Solve Sudoku Puzzle"):
+            if self.solver.solution is not None:
+                self.message.setText("Solved Sudoku Puzzle")
+                self.statusBar.addWidget(self.message)
+            else:
+                self.message.setText("Solver Failed. Recheck Initial Conditions")
+                self.statusBar.addWidget(self.message)
+
+            # self.statusBar.showMessage(q.text() + " is clicked", 2000)
+
 
     def updateActions(self):
         self.zoomInAct.setEnabled(not self.fitToWindowAct.isChecked())
@@ -334,9 +363,6 @@ class ImageViewer(QMainWindow):
     def toggleDisplay(self):
         self.imageLabel.display = not self.imageLabel.display
         self.imageLabel.update()
-
-    def displayText(self):
-        pass
 
     def findDistortion(self):
         """ take sudoku box corners and calculate the affine transformation for a square
@@ -512,11 +538,7 @@ class ImageViewer(QMainWindow):
         self.imageLabel.update()
 
     def solvePuzzle(self):
-        solver = sudoku_linprog()
-
-        kv = self.imageLabel.initial_conds_index
         initial_problem = np.zeros((9, 9)).astype(int)
-
         for idx in range(81):
             j = idx % 9
             i = (idx - j) // 9
@@ -524,13 +546,17 @@ class ImageViewer(QMainWindow):
             initial_problem[i, j] = self.imageLabel.initial_conds[i, j, k]
 
         if self.imageLabel.initial_conds is not None:
-            solver.solve(initial_problem)
+            self.solver.solve(initial_problem)
 
         # display solution
-        self.imageLabel.solution = solver.solution
-        self.imageLabel.display_initial_conds = False
-        self.imageLabel.display_solution = True
-        self.imageLabel.update()
+        if self.solver.solution is not None:
+            self.imageLabel.solution = self.solver.solution
+            self.imageLabel.display_initial_conds = False
+            self.imageLabel.display_solution = True
+            self.imageLabel.update()
+        else:
+            # solver couldn't find solution, update initial conditions to fix problem
+            self.imageLabel.display_initial_conds = True
 
 if __name__ == '__main__':
     app = QApplication(sys.argv)

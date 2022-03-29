@@ -36,7 +36,11 @@ class sudoku_linprog():
         """
         n, _, _ = array.shape
         _, _, depth = np.nonzero(array)
-        array2d = depth.reshape((n, n))
+        if depth.size == 81:
+            array2d = depth.reshape((n, n))
+        else:
+            array2d = None
+
         return array2d
 
     def solve(self, array):
@@ -90,7 +94,10 @@ class sudoku_linprog():
         myarray = np.array([model.variables()[i].varValue for i in
                             range(1, len(model.variables()))]).reshape(self.n, self.n, self.n)
 
-        self.solution = self.convert_to_2d(myarray) + 1
+        solu = self.convert_to_2d(myarray)
+
+        if solu is not None:
+            self.solution = solu + 1
 
 
 if __name__ == "__main__":
