@@ -113,7 +113,7 @@ class ImageViewer(QMainWindow):
         self.createActions()
         self.createMenus()
 
-        self.setWindowTitle("Image Viewer")
+        self.setWindowTitle("Sudoku Solver")
         self.resize(500, 400)
 
         # top left, top right, bottom left, bottom right
@@ -133,6 +133,17 @@ class ImageViewer(QMainWindow):
         fileName, _ = QFileDialog.getOpenFileName(self, "Open File",
                                                   QDir.currentPath())
         if fileName:
+
+            # reset imageLabel, and ImageViewer attributes to original values to allow for serial use
+            self.finding_points = False
+            self.solving_problem = False
+            self.imageLabel.cell_centers = None
+            self.imageLabel.initial_conds = None
+            self.imageLabel.solution = None
+            self.imageLabel.display = False
+            self.imageLabel.display_initial_conds = False
+            self.imageLabel.display_solution = False
+
             self.image = QImage(fileName)
             if self.image.isNull():
                 QMessageBox.information(self, "Image Viewer",
@@ -148,6 +159,7 @@ class ImageViewer(QMainWindow):
 
             if not self.fitToWindowAct.isChecked():
                 self.imageLabel.adjustSize()
+
 
 
     def print_(self):
@@ -178,21 +190,21 @@ class ImageViewer(QMainWindow):
             self.normalSize()
         self.updateActions()
 
-    def about(self):
-        QMessageBox.about(self, "About Image Viewer",
-                          "<p>The <b>Image Viewer</b> example shows how to combine "
-                          "QLabel and QScrollArea to display an image. QLabel is "
-                          "typically used for displaying text, but it can also display "
-                          "an image. QScrollArea provides a scrolling view around "
-                          "another widget. If the child widget exceeds the size of the "
-                          "frame, QScrollArea automatically provides scroll bars.</p>"
-                          "<p>The example demonstrates how QLabel's ability to scale "
-                          "its contents (QLabel.scaledContents), and QScrollArea's "
-                          "ability to automatically resize its contents "
-                          "(QScrollArea.widgetResizable), can be used to implement "
-                          "zooming and scaling features.</p>"
-                          "<p>In addition the example shows how to use QPainter to "
-                          "print an image.</p>")
+    def instructions(self):
+        QMessageBox.about(self,
+        '',
+        "<p> Instructions: "
+        "<p> 1. In the File menu tab open sudoku image using the open action (Ctrl+O)."
+        "<p> 2. In the Actions menu tab select the find corners action (Ctrl+C).  Left mouse click on the corners of "
+            "the sudoku puzzle in order from top left, top right, bottom left, bottom right"
+        "<p> 3. In the Actions menu tab select the determine digits action (Ctrl+D).  This will automatically determine "
+            "which digits are in the cell, if any.  Emtpy cells will be denoted with a zero.  Left mouse click sudoku "
+            "cell to increment the prediction for the cell. Right mouse click to return to the previous prediction. "
+        "<p> (Optional) In the Actions menu tab select Toggle Number Display (Ctrl+X) to stop/start displaying digits"
+        "<p> 4. In the Actions menu tab select Solve Sudoku Puzzle (Ctrl+Z) to solve for the missing numbers. "
+            "It will automatically display the correct digits in their corresponding locations if the solve was "
+            "successful. Otherwise, a message will pop up in the status bar at the bottom letting you know that "
+            "the solve failed; prompting you to go alter the initial conditions so that they are all correct.")
 
 
     def createActions(self):
@@ -217,10 +229,7 @@ class ImageViewer(QMainWindow):
         self.fitToWindowAct = QAction("&Fit to Window", self, enabled=False,
                                       checkable=True, shortcut="Ctrl+F", triggered=self.fitToWindow)
 
-        self.aboutAct = QAction("&About", self, triggered=self.about)
-
-        self.aboutQtAct = QAction("About &Qt", self,
-                                  triggered=QApplication.instance().aboutQt)
+        self.instructionsAct = QAction("&Use Instructions", self, triggered=self.instructions)
 
         self.findCorners = QAction("Find &Corners", self, shortcut="Ctrl+c",
                                    triggered=self.findCorners)
@@ -249,8 +258,7 @@ class ImageViewer(QMainWindow):
         self.viewMenu.addAction(self.fitToWindowAct)
 
         self.helpMenu = QMenu("Help", self)
-        self.helpMenu.addAction(self.aboutAct)
-        self.helpMenu.addAction(self.aboutQtAct)
+        self.helpMenu.addAction(self.instructionsAct)
 
         self.actMenu = QMenu("Actions", self)
         self.actMenu.addAction(self.findCorners)
@@ -536,6 +544,11 @@ class ImageViewer(QMainWindow):
         self.imageLabel.display = True
         self.imageLabel.display_initial_conds = True
         self.imageLabel.update()
+
+        # save myarray and predictions
+        mydict = {'myarray': myarray, 'preds': preds}
+        with open('images.pkl', 'wb') as f:
+            pkl.dump(mydict, f)
 
     def solvePuzzle(self):
         initial_problem = np.zeros((9, 9)).astype(int)

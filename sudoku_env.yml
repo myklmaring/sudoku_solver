@@ -1,5 +1,6 @@
 name: sudoku
 channels:
+  - pytorch
   - conda-forge
   - defaults
 dependencies:
@@ -9,9 +10,10 @@ dependencies:
   - blas=1.0=mkl
   - bzip2=1.0.8=h7f98852_4
   - c-ares=1.17.1=h7f98852_1
-  - ca-certificates=2020.12.5=ha878542_0
+  - ca-certificates=2021.1.19=h06a4308_1
   - cairo=1.16.0=h7979940_1007
-  - certifi=2020.12.5=py37h89c1867_1
+  - certifi=2020.12.5=py37h06a4308_0
+  - cudatoolkit=10.2.89=h8f6ccaa_8
   - cycler=0.10.0=py37_0
   - dbus=1.13.18=hb2f20db_0
   - decorator=4.4.2=pyhd3eb1b0_0
@@ -66,6 +68,7 @@ dependencies:
   - libstdcxx-ng=9.3.0=h6de172a_18
   - libtiff=4.1.0=h2733197_1
   - libuuid=2.32.1=h7f98852_1000
+  - libuv=1.41.0=h7f98852_0
   - libwebp-base=1.2.0=h7f98852_0
   - libxcb=1.14=h7b6447c_0
   - libxkbcommon=1.0.3=he3ba5ed_0
@@ -81,6 +84,7 @@ dependencies:
   - mysql-libs=8.0.23=h935591d_1
   - ncurses=6.2=he6710b0_1
   - nettle=3.6=he412f7d_0
+  - ninja=1.10.2=h4bd325d_0
   - nspr=4.29=h9c3ff4c_1
   - nss=3.62=hb5efdd6_0
   - numpy=1.19.2=py37h54aff64_0
@@ -88,7 +92,7 @@ dependencies:
   - olefile=0.46=py37_0
   - opencv=4.5.1=py37h89c1867_0
   - openh264=2.1.1=h780b84a_0
-  - openssl=1.1.1j=h7f98852_0
+  - openssl=1.1.1j=h27cfd23_0
   - parso=0.8.1=pyhd3eb1b0_0
   - pcre=8.44=he6710b0_0
   - pexpect=4.8.0=pyhd3eb1b0_3
@@ -109,6 +113,7 @@ dependencies:
   - python=3.7.10=hdb3f193_0
   - python-dateutil=2.8.1=pyhd3eb1b0_0
   - python_abi=3.7=1_cp37m
+  - pytorch=1.7.0=py3.7_cuda10.2.89_cudnn7.6.5_0
   - qt=5.12.9=hda022c4_4
   - readline=8.1=h27cfd23_0
   - scipy=1.6.1=py37h91f5cce_0
@@ -117,8 +122,12 @@ dependencies:
   - six=1.15.0=py37h06a4308_0
   - sqlite=3.34.0=h74cdb3f_0
   - tk=8.6.10=hbc83047_0
+  - torchaudio=0.7.0=py37
+  - torchvision=0.8.1=py37_cu102
   - tornado=6.1=py37h27cfd23_0
+  - tqdm=4.59.0=pyhd3eb1b0_1
   - traitlets=5.0.5=pyhd3eb1b0_0
+  - typing_extensions=3.7.4.3=py_0
   - wcwidth=0.2.5=py_0
   - wheel=0.36.2=pyhd3eb1b0_0
   - x264=1!161.3030=h7f98852_0
