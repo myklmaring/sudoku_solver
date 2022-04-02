@@ -194,10 +194,10 @@ class ImageViewer(QMainWindow):
         QMessageBox.about(self,
         '',
         "<p> Instructions: "
-        "<p> 1. In the File menu tab open sudoku image using the open action (Ctrl+O)."
-        "<p> 2. In the Actions menu tab select the find corners action (Ctrl+C).  Left mouse click on the corners of "
+        "<p> 1. In the File menu tab open sudoku image using the Open action (Ctrl+O)."
+        "<p> 2. In the Actions menu tab select the Find Corners action (Ctrl+C).  Left mouse click on the corners of "
             "the sudoku puzzle in order from top left, top right, bottom left, bottom right"
-        "<p> 3. In the Actions menu tab select the determine digits action (Ctrl+D).  This will automatically determine "
+        "<p> 3. In the Actions menu tab select the Determine Digits action (Ctrl+D).  This will automatically determine "
             "which digits are in the cell, if any.  Emtpy cells will be denoted with a zero.  Left mouse click sudoku "
             "cell to increment the prediction for the cell. Right mouse click to return to the previous prediction. "
         "<p> (Optional) In the Actions menu tab select Toggle Number Display (Ctrl+X) to stop/start displaying digits"
