@@ -1,14 +1,15 @@
 name: sudoku
 channels:
   - defaults
+  - pytorch
+  - conda-forge
 dependencies:
   - python=3
-  - ipython
   - scipy
   - matplotlib
-  - torchaudio
   - torchvision
-  - cudatoolkit=10.2
+  - pulp
+  - pyqt>=5
   - pytorch
   - tqdm
 prefix: /home/michael/miniconda3/envs/sudoku

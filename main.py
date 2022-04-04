@@ -519,7 +519,7 @@ class ImageViewer(QMainWindow):
         # feed the sequence of sudoku cell images through the trained model
         device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         model = MyNetwork().to(device)
-        model.load_state_dict(torch.load('model/mnist_model_epoch_15.pth'))
+        model.load_state_dict(torch.load('model/mnist_model_epoch_15.pth', map_location=device))
 
         # evaluate each cell of the sudoku 9x9 array
         mytens = torch.from_numpy(myarray)                                  # shape (81, 1, 28, 28)
@@ -527,9 +527,7 @@ class ImageViewer(QMainWindow):
 
         # Predictions that have confidence below threshold are considered empty
         confidence_thresh = 0.35       # prediction probability threshold
-        initial_conds = np.argmax(preds, axis=1)
         confidence_max = np.max(preds, axis=1)
-        # print(np.where(confidence_max < confidence_thresh, 0, initial_conds).reshape(9, 9))
 
         # Assign Initial Conditions to imageLabel for Display Purposes
         # (indices that return the sorted predictions for each sudoku cell)
