@@ -88,7 +88,7 @@ class sudoku_linprog():
             model += var[rows[i]][cols[i]][depth[i]] == 1
 
         # solve linear programming problem
-        model.solve(PULP_CBC_CMD(msg=0))
+        model.solve()
 
         # Convert variable solutions to sudoku puzzle
         myarray = np.array([model.variables()[i].varValue for i in

@@ -139,6 +139,7 @@ class ImageViewer(QMainWindow):
             self.solving_problem = False
             self.imageLabel.cell_centers = None
             self.imageLabel.initial_conds = None
+            self.imageLabel.initial_conds_index = np.zeros((9, 9)).astype(int)
             self.imageLabel.solution = None
             self.imageLabel.display = False
             self.imageLabel.display_initial_conds = False
