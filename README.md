@@ -27,7 +27,7 @@ demonstrating the power of my automated sudoku solver.
 To download the repository using the Linux command line:
 
 ```commandline
-git clone git@github.com:myklmaring/sudoku_solver.git
+git clone https://github.com/myklmaring/sudoku_solver.git
 ```
 
 Otherwise, click the green "Code" button in the top right, and select "Download ZIP".
